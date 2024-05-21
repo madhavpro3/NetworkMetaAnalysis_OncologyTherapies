@@ -1,0 +1,262 @@
+---
+title: "Network Meta Analysis"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning=FALSE,message=FALSE,cache = FALSE)
+```
+
+```{r}
+## Choose ORR or AE, PFS6mon
+ReportParameter <- "ORR"
+
+title="Severe Adverse Events (Grade 3,4,5)"
+if(ReportParameter=="ORR"){
+  title="Objective Response Rate (ORR)"
+}else if(ReportParameter=="PFS6mon"){
+  title="% Population with PFS for 6months"
+}else if(ReportParameter=="PFS12mon"){
+  title="% Population with PFS for 12 months"
+}else if(ReportParameter=="PFS24mon"){
+  title="% Population with PFS for 24mon"
+}
+
+```
+
+## Network Meta analysis with `r title`
+***
+
+```{r}
+library(tidyverse)
+library(gemtc)
+
+setwd("D:\\GLMs\\IOkb\\NMA R scripts")
+RWORKSPACE_PATH<-"Rworkspace/"
+DATAFILE<-paste(RWORKSPACE_PATH,ReportParameter,"_nma_df_main.csv",sep="")
+
+nma_df <- read.csv(DATAFILE,stringsAsFactors = FALSE,na.strings = c("","NA"))
+
+# if(ReportParameter=="ORR"){
+#   nma_df <- read.csv(paste(RWORKSPACE_PATH,"ORR_nma_df_main.csv",sep=""),stringsAsFactors = FALSE,na.strings = c("","NA"))
+# }else if(ReportParameter=="AE"){
+#   nma_df <- read.csv(paste(RWORKSPACE_PATH,"AE_nma_df_main.csv",sep=""),stringsAsFactors = FALSE,na.strings = c("","NA"))
+# }else{
+#   filename=paste(RWORKSPACE_PATH,ReportParameter,"_nma_df_main.csv",sep="")
+#   nma_df <- read.csv(filename,stringsAsFactors = FALSE,na.strings = c("","NA"))
+# }
+
+```
+
+```{r}
+
+## Comparison of Checkpoint Pathways
+ # analysis_df<-nma_df %>%
+ #   select(study,treatment,responders,sampleSize) %>%
+ #   mutate(treatment=gsub(pattern="[+]",replacement="_",treatment)) %>%
+ #   mutate(responders=floor(responders))
+
+
+
+## Comparison of Checkpoint Inhibitory Therapies
+analysis_df<-nma_df %>%
+  mutate(treatment=gsub(pattern="[ \t\n\r\v\f]",replacement="",Checkpoint.Inhibitors)) %>%
+  mutate(treatment=gsub("DTIC","Chemotherapy",treatment)) %>%
+  mutate(treatment=gsub("Dacarbazine","Chemotherapy",treatment)) %>%
+  mutate(treatment=gsub("\\+placebo","",treatment)) %>%
+  mutate(treatment=gsub("Ipilumumab","Ipilimumab",treatment))
+
+ analysis_df <- analysis_df %>%
+   filter(!(treatment %in% c("Pembrolizumab+Ipilimumab","Pembrolizumab+T-VEC","Avelumab","Ipilimumab+Nivolumab+Nivolumab"))) %>%
+   mutate(responders=floor(responders))
+# 
+ analysis_df<-analysis_df %>%
+   select(study,treatment,responders,sampleSize) %>%
+   mutate(treatment=gsub(pattern="[+]",replacement="_",treatment))
+
+
+
+```
+
+### Data set used for analysis
+```{r}
+network_obj<-mtc.network(data.ab=analysis_df)
+analysis_df<-network_obj$data.ab
+analysis_df$study<-as.vector(analysis_df$study)
+analysis_df$treatment<-as.vector(analysis_df$treatment)
+
+write.csv(analysis_df,"NMA_AE_df.csv")
+print(network_obj$data.ab)
+```
+
+
+
+### Data network plot
+```{r}
+library(pcnetmeta)
+nma.networkplot(analysis_df$study,analysis_df$treatment)
+#nma.networkplot(study,treatment,temp,text.cex = 1.5,adjust.figsizex=2,adjust.figsizey=1.5)
+
+## Size the nodes according to num of subjects
+#temp<-analysis_df %>% group_by(treatment) %>% summarise(nsubjects=n())
+#nsub<-temp$nsubjects
+#nsub<-1+floor(10*nsub/sum(nsub))
+
+#nma.networkplot(study,treatment,analysis_df,weight.node=TRUE,adjust.node.size=nsub*3)
+```
+
+```{r}
+th<-unique(analysis_df$treatment)
+numTh<-length(th)
+
+temp<-analysis_df %>% select(study,treatment,sampleSize) %>% spread(treatment,sampleSize)
+temp<-analysis_df %>%
+  select(study,treatment) %>%
+  group_by(study) %>%
+  summarise(tt=paste(treatment,collapse=",")) %>%
+  ungroup()
+temp<-as.data.frame(temp)
+
+buildAdjMat<-function(i_StudyArmsVec){
+  adjMat<-matrix(0,numTh,numTh)
+  rownames(adjMat)<-th
+  colnames(adjMat)<-th
+  for(studyInd in 1:length(i_StudyArmsVec)){
+    cur_th<-strsplit(i_StudyArmsVec[studyInd],split=",")[[1]]
+#    print(cur_th)
+    for(i in 1:length(cur_th)){
+      for(j in i+1:length(cur_th)){
+        tr1=cur_th[i]
+        tr2=cur_th[j]
+        if(is.na(tr1) || is.na(tr2)){
+          break
+        }
+        adjMat[tr1,tr2]=adjMat[tr1,tr2]+1
+      }
+    }
+  }
+  return(adjMat)
+}
+
+adjMat<-buildAdjMat(temp$tt)
+numLinksPossible=choose(numTh,2)
+numLinksAvailable=sum(adjMat>0)
+numTrialsInStrongestLink=max(adjMat)
+cellsWithStrongestLinks=which(adjMat==numTrialsInStrongestLink,arr.ind=TRUE)
+strongLinks=""
+for(rowInd in 1:nrow(cellsWithStrongestLinks)){
+  th1=th[cellsWithStrongestLinks[rowInd,1]]
+  th2=th[cellsWithStrongestLinks[rowInd,2]]
+  strongLinks=paste(strongLinks,"; ",th1,"-",th2)
+}
+```
+
+#### Unique studies are
+#### `r unique(analysis_df$study)`
+
+
+### Network Geometry analysis
+
+  * #### There are `r numTh` therapies compared in this Network Meta-Analysis(NMA) from `r length(unique(analysis_df$study))` clinical trials and the total number of subjects involved are `r sum(analysis_df$sampleSize)`. There are `r numLinksPossible` direct comparisons possible, of which `r numLinksAvailable` comparisons are known from trial data. Strongest link between `r strongLinks` have `r numTrialsInStrongestLink` trials to support.
+
+
+```{r model_fit}
+mtcmodel_RE<-mtc.model(network_obj,linearModel="random")
+nma_result_RE<-mtc.run(mtcmodel_RE)
+
+mtcmodel_FE<-mtc.model(network_obj,linearModel="fixed")
+nma_result_FE<-mtc.run(mtcmodel_FE)
+
+```
+
+
+  * ####Deviance Information Criterion(DIC) for RE model = `r nma_result_RE$deviance$DIC`
+  * ####Deviance Information Criterion(DIC) for FE model = `r nma_result_FE$deviance$DIC`
+  
+#### DIC is a likelihood estimate used to compare models. A lower DIC implies a better fit. DIC = Posterior mean of residual deviance(Dbar) + leverage(pD)
+  
+### Forest plot
+***
+```{r}
+nma_result=nma_result_RE
+if(nma_result_FE$deviance$DIC < nma_result_RE$deviance$DIC){
+  nma_result=nma_result_FE
+}
+forest(nma_result)
+```
+
+
+#### CrI is Credible Interval. A 95% CrI means there is a 0.95 chance of Population statistic being in this interval. This is different from the frequentist Confidence Interval(CI). A 95%CI when given can be used to calculate std.dev.So if samples are drawn from the distribution with these mean and std.dev and 95%CIs are estimated for those, then 95% of those CIs wll contain the true/population mean.
+
+### Rankograms
+***
+```{r}
+dir=1
+if(ReportParameter=="AE"){
+  dir=-1
+}
+ranks <- rank.probability(nma_result,preferredDirection = dir)
+# therapies<-rownames(ranks)
+# ranks_df<-data.frame(ranks[1,],ranks[2,],ranks[3,],ranks[4,],ranks[5,])
+# colnames(ranks_df)<-rownames(ranks)
+
+#plot(ranks)
+
+ranks_tbl<-as.table(ranks)
+ntherapies=length(colnames(ranks_tbl))
+
+colnames(ranks_tbl)<-1:ntherapies
+ranks_df<-as.data.frame(ranks_tbl)
+
+ranks_df<-ranks_df %>%
+  rename(Therapy=Var1,Rank=Var2) %>%
+  group_by(Therapy) %>%
+  mutate(CDF=cumsum(Freq)) %>%
+  ungroup()
+ranks_df <- as.data.frame(ranks_df)
+ranks_df <- ranks_df %>%
+  mutate(Therapy=gsub("_","+",Therapy))
+
+```
+#### Probability Mass Functions (PMF)
+```{r}
+gg_pmf<-ggplot(ranks_df)
+gg_pmf+geom_col(aes(x=Rank,y=Freq))+facet_grid(.~Therapy)+
+    labs(x="Rank",y="Probability")+
+    theme(strip.text.x = element_text(size = 10,face="bold"),
+          axis.text=element_text(size=18,face="bold"),
+          text=element_text(size=18,face="bold"))
+```
+
+#### Cumulative Distribution Function (CDF)
+
+```{r}
+
+gg_cdf<-ggplot(ranks_df)
+gg_cdf+geom_line(aes(x=Rank,y=CDF,group=Therapy,color=Therapy),size=2)+
+  labs(x="Rank",y="Cumulative Probability")+
+  theme(text=element_text(size=18,face="bold"),
+        strip.text=element_text(size = 10,face="bold"),
+        axis.text=element_text(size=18,face="bold"))
+
+```
+
+#### Surface Under Cumulative RAnking (SUCRA) scores 
+
+##### Between 2 therapies, the one with higher SUCRA score is a better. Source : https://bmcmedresmethodol.biomedcentral.com/articles/10.1186/s12874-015-0060-8
+```{r}
+SUCRAScore<-function(rank_cdf){
+  return ((sum(rank_cdf)-tail(rank_cdf,1))/(length(rank_cdf)-1))
+}
+
+SUCRA_df <- ranks_df %>%
+  group_by(Therapy) %>%
+  summarise(SUCRA=100*SUCRAScore(as.array(CDF))) %>%
+  ungroup() %>%
+  arrange(desc(SUCRA))
+
+print(SUCRA_df)
+
+```
