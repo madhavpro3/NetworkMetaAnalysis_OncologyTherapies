@@ -1,5 +1,8 @@
 # NetworkMetaAnalysis_OncologyTherapies
-A network meta-analysis of immunotherapies and chemotherapy
+
+Clinical trials for novel therapies typically only compare the novel therapy against the standard-of-care to for getting regulatory approval. However, there can be multiple therapies approved with the same mode-of-action for a disease indication. In those cases, one has to pool information from multiple studies to make indirection comparisons to understand the relative pros and cons of therapies wrt efficacy and safety. A network meta-analysis is one such approach to do this indirect comparisons.
+
+This work presents results from a network meta-analysis study comparing different immunotherapies and chemotherapy.
 
 A meta-analysis is used to summarize the results of comparing therapies from different studies that compare them head-to-head. A network meta-analysis compares multiple therapies from different studies with the advantage that with the formed network its possible to estimate indirect effects i.e compare therapies that were not compared head-to-head previously
 
